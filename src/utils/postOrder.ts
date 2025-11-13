@@ -5,6 +5,7 @@ import { ENV } from '../config/env';
 
 const RETRY_LIMIT = ENV.RETRY_LIMIT;
 const USER_ADDRESS = ENV.USER_ADDRESS;
+const PRICE_DIFF_THRESHOLD = ENV.PRICE_DIFF_THRESHOLD;
 const UserActivity = getUserActivityModel(USER_ADDRESS);
 
 const postOrder = async (
@@ -27,14 +28,23 @@ const postOrder = async (
         let remaining = my_position.size;
         let retry = 0;
         while (remaining > 0 && retry < RETRY_LIMIT) {
-            const orderBook = await clobClient.getOrderBook(trade.asset);
+            // 修復 #10: 添加 API 錯誤處理
+            let orderBook;
+            try {
+                orderBook = await clobClient.getOrderBook(trade.asset);
+            } catch (error) {
+                console.error('Failed to get order book:', error);
+                retry += 1;
+                continue;
+            }
+
             if (!orderBook.bids || orderBook.bids.length === 0) {
                 console.log('No bids found');
                 await UserActivity.updateOne({ _id: trade._id }, { bot: true });
                 break;
             }
 
-            const maxPriceBid = orderBook.bids.reduce((max, bid) => {
+            const maxPriceBid = orderBook.bids.reduce((max: any, bid: any) => {
                 return parseFloat(bid.price) > parseFloat(max.price) ? bid : max;
             }, orderBook.bids[0]);
 
@@ -74,25 +84,52 @@ const postOrder = async (
         }
     } else if (condition === 'buy') {       //Buy strategy
         console.log('Buy Strategy...');
-        const ratio = my_balance / (user_balance + trade.usdcSize);
+
+        // 修復 #17: 防止除以零
+        const denominator = user_balance + trade.usdcSize;
+        if (denominator === 0) {
+            console.log('Invalid balance calculation (denominator is 0)');
+            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            return;
+        }
+
+        const ratio = my_balance / denominator;
         console.log('ratio', ratio);
         let remaining = trade.usdcSize * ratio;
+
+        // 修復 #11: 檢查餘額是否足夠
+        if (my_balance < remaining) {
+            console.log(`Insufficient balance: have ${my_balance} USDC, need ${remaining} USDC`);
+            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            return;
+        }
+
         let retry = 0;
         while (remaining > 0 && retry < RETRY_LIMIT) {
-            const orderBook = await clobClient.getOrderBook(trade.asset);
+            // 修復 #10: 添加 API 錯誤處理
+            let orderBook;
+            try {
+                orderBook = await clobClient.getOrderBook(trade.asset);
+            } catch (error) {
+                console.error('Failed to get order book:', error);
+                retry += 1;
+                continue;
+            }
+
             if (!orderBook.asks || orderBook.asks.length === 0) {
                 console.log('No asks found');
                 await UserActivity.updateOne({ _id: trade._id }, { bot: true });
                 break;
             }
 
-            const minPriceAsk = orderBook.asks.reduce((min, ask) => {
+            const minPriceAsk = orderBook.asks.reduce((min: any, ask: any) => {
                 return parseFloat(ask.price) < parseFloat(min.price) ? ask : min;
             }, orderBook.asks[0]);
 
             console.log('Min price ask:', minPriceAsk);
-            if (parseFloat(minPriceAsk.price) - 0.05 > trade.price) {
-                console.log('Too big different price - do not copy');
+            // 修復 #6: 使用環境變數代替硬編碼閾值
+            if (parseFloat(minPriceAsk.price) - PRICE_DIFF_THRESHOLD > trade.price) {
+                console.log(`Price difference too large (threshold: ${PRICE_DIFF_THRESHOLD}) - do not copy`);
                 await UserActivity.updateOne({ _id: trade._id }, { bot: true });
                 break;
             }
@@ -131,27 +168,54 @@ const postOrder = async (
         }
     } else if (condition === 'sell') {          //Sell strategy
         console.log('Sell Strategy...');
-        let remaining = 0;
         if (!my_position) {
             console.log('No position to sell');
             await UserActivity.updateOne({ _id: trade._id }, { bot: true });
-        } else if (!user_position) {
+            return;  // 修復 #4: 添加 return 避免執行無效循環
+        }
+
+        let remaining = 0;
+        if (!user_position) {
             remaining = my_position.size;
         } else {
-            const ratio = trade.size / (user_position.size + trade.size);
+            // 修復 #17: 防止除以零
+            const denominator = user_position.size + trade.size;
+            if (denominator === 0) {
+                console.log('Invalid position calculation (denominator is 0)');
+                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                return;
+            }
+            const ratio = trade.size / denominator;
             console.log('ratio', ratio);
             remaining = my_position.size * ratio;
         }
+
+        // 修復 #12: 檢查倉位是否足夠
+        if (my_position.size < remaining) {
+            console.log(`Insufficient position: have ${my_position.size}, need to sell ${remaining}`);
+            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+            return;
+        }
+
         let retry = 0;
         while (remaining > 0 && retry < RETRY_LIMIT) {
-            const orderBook = await clobClient.getOrderBook(trade.asset);
+            // 修復 #10: 添加 API 錯誤處理
+            let orderBook;
+            try {
+                orderBook = await clobClient.getOrderBook(trade.asset);
+            } catch (error) {
+                console.error('Failed to get order book:', error);
+                retry += 1;
+                continue;
+            }
+
             if (!orderBook.bids || orderBook.bids.length === 0) {
                 await UserActivity.updateOne({ _id: trade._id }, { bot: true });
                 console.log('No bids found');
                 break;
             }
 
-            const maxPriceBid = orderBook.bids.reduce((max, bid) => {
+            const maxPriceBid = orderBook.bids.reduce((max: any, bid: any) => {
                 return parseFloat(bid.price) > parseFloat(max.price) ? bid : max;
             }, orderBook.bids[0]);
 

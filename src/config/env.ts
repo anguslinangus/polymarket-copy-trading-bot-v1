@@ -35,6 +35,7 @@ export const ENV = {
     FETCH_INTERVAL: parseInt(process.env.FETCH_INTERVAL || '1', 10),
     TOO_OLD_TIMESTAMP: parseInt(process.env.TOO_OLD_TIMESTAMP || '24', 10),
     RETRY_LIMIT: parseInt(process.env.RETRY_LIMIT || '3', 10),
+    PRICE_DIFF_THRESHOLD: parseFloat(process.env.PRICE_DIFF_THRESHOLD || '0.05'),  // 價格差異閾值（預設 0.05）
     MONGO_URI: process.env.MONGO_URI as string,
     RPC_URL: process.env.RPC_URL as string,
     USDC_CONTRACT_ADDRESS: process.env.USDC_CONTRACT_ADDRESS as string,

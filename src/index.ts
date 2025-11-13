@@ -1,6 +1,6 @@
 import connectDB from './config/db';
 import { ENV } from './config/env';
-import createClobClient from './utils/createClobClient';
+import createClobClient from './services/createClobClient';
 import tradeExecutor from './services/tradeExecutor';
 import tradeMonitor from './services/tradeMonitor';
 import test from './test/test';
@@ -10,12 +10,35 @@ const PROXY_WALLET = ENV.PROXY_WALLET;
 
 export const main = async () => {
     await connectDB();
-    console.log(`Target User Wallet addresss is: ${USER_ADDRESS}`);
-    console.log(`My Wallet addresss is: ${PROXY_WALLET}`);
+    console.log(`Target User Wallet address is: ${USER_ADDRESS}`);
+    console.log(`My Wallet address is: ${PROXY_WALLET}`);
     const clobClient = await createClobClient();
-    tradeMonitor();  //Monitor target user's transactions
-    tradeExecutor(clobClient);  //Execute transactions on your wallet
-    // test(clobClient);
+
+    // 使用 Promise.all 並行運行兩個監控循環，並添加錯誤處理
+    await Promise.all([
+        tradeMonitor().catch((err) => {
+            console.error('❌ Trade Monitor crashed:', err);
+            process.exit(1);
+        }),
+        tradeExecutor(clobClient).catch((err) => {
+            console.error('❌ Trade Executor crashed:', err);
+            process.exit(1);
+        }),
+    ]);
 };
 
-main();
+// 優雅關閉處理
+process.on('SIGINT', () => {
+    console.log('\n⚠️  Received SIGINT, shutting down gracefully...');
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n⚠️  Received SIGTERM, shutting down gracefully...');
+    process.exit(0);
+});
+
+main().catch((err) => {
+    console.error('❌ Fatal error:', err);
+    process.exit(1);
+});

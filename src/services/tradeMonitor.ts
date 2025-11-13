@@ -18,7 +18,7 @@ const UserPosition = getUserPositionModel(USER_ADDRESS);
 let temp_trades: UserActivityInterface[] = [];
 
 const init = async () => {
-    temp_trades = (await UserActivity.find().exec()).map((trade) => trade as UserActivityInterface);
+    temp_trades = (await UserActivity.find().exec()).map((trade: any) => trade as UserActivityInterface);
 };
 
 const fetchTradeData = async () => {
